@@ -1,0 +1,11 @@
+const express=require('express');
+const cors=require('cors');
+const {Pool}=require('pg');
+const app=express(); app.use(cors()); app.use(express.json());
+const db=new Pool({host:process.env.DB_HOST||'localhost',port:+(process.env.DB_PORT||5432),database:process.env.DB_NAME||'taskmanager',user:process.env.DB_USER||'taskuser',password:process.env.DB_PASSWORD||'change-this-password'});
+app.get('/api/health',async(_q,s)=>{try{await db.query('SELECT 1');s.json({status:'ok',database:'connected'});}catch(e){s.status(503).json({status:'error'});}});
+app.get('/api/tasks',async(_q,s)=>{try{s.json((await db.query('SELECT * FROM tasks ORDER BY created_at DESC')).rows);}catch(e){s.status(500).json({error:'Could not fetch tasks'});}});
+app.post('/api/tasks',async(q,s)=>{const {title,description='',priority='Medium'}=q.body;if(!title?.trim())return s.status(400).json({error:'Title required'});if(!['Low','Medium','High'].includes(priority))return s.status(400).json({error:'Invalid priority'});try{s.status(201).json((await db.query('INSERT INTO tasks(title,description,priority) VALUES($1,$2,$3) RETURNING *',[title.trim(),description,priority])).rows[0]);}catch(e){s.status(500).json({error:'Could not create task'});}});
+app.patch('/api/tasks/:id',async(q,s)=>{const {status}=q.body;if(!['Pending','In Progress','Completed'].includes(status))return s.status(400).json({error:'Invalid status'});try{const r=await db.query('UPDATE tasks SET status=$1 WHERE id=$2 RETURNING *',[status,q.params.id]);if(!r.rowCount)return s.status(404).json({error:'Not found'});s.json(r.rows[0]);}catch(e){s.status(500).json({error:'Could not update task'});}});
+app.delete('/api/tasks/:id',async(q,s)=>{try{const r=await db.query('DELETE FROM tasks WHERE id=$1 RETURNING id',[q.params.id]);if(!r.rowCount)return s.status(404).json({error:'Not found'});s.status(204).end();}catch(e){s.status(500).json({error:'Could not delete task'});}});
+app.listen(+(process.env.PORT||5000),'0.0.0.0',()=>console.log('API listening'));
